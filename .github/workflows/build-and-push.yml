@@ -11,15 +11,6 @@ env:
   REGISTRY: ${{ secrets.REGISTRY || 'ghcr.io' }} # e.g. ghcr.io
   REGISTRY_IP: ${{ secrets.REGISTRY_IP }} # optional: pin host->IP through WG
   IMAGE_PREFIX: ${{ secrets.IMAGE_PREFIX || 'ghcr.io/optixlog' }} # this repo's token can only push to ghcr.io/optixlog
-  PAPERMARK_REPO: mfts/papermark
-  # Pinned: newest public commit that still builds. From 2026-05-05 onward
-  # (bf2ac83a and later) upstream main imports @/ee/* modules that are NOT in
-  # the public repo (EE-only code: dataroom-trial, branding, request-lists,
-  # confidential-view, stripe/currency, ...) and `next build` fails on
-  # module-not-found. Re-audit missing @/ee imports before bumping this.
-  PAPERMARK_REF: f7a90495a1c2944737f76ed0605450e9e2af532a
-  PAPERMARK_PRS: "" # e.g. "123,456" (leave empty to skip)
-  WORKFLOW_TARGET_DIR: "." # no trailing slash
   USE_WG: ${{ secrets.WG_CONF != '' }}
 
 # Permissions required for pushing to ghcr.io
@@ -39,128 +30,6 @@ jobs:
     steps:
       - name: Checkout (this repo)
         uses: actions/checkout@v4
-
-      - name: Checkout Papermark upstream
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.PAPERMARK_REPO }}
-          ref: ${{ env.PAPERMARK_REF }}
-          path: ${{ env.WORKFLOW_TARGET_DIR }}/papermark-src
-          fetch-depth: 0 # IMPORTANT: we need history to merge PRs
-
-      - name: Apply selected PRs onto Papermark
-        if: ${{ env.PAPERMARK_PRS != '' }}
-        working-directory: ${{ env.WORKFLOW_TARGET_DIR }}/papermark-src
-        run: |
-          set -euo pipefail
-          IFS=',' read -ra PRS <<< "${PAPERMARK_PRS}"
-          git config user.email "ci@github"
-          git config user.name "GitHub Actions"
-          for PR in "${PRS[@]}"; do
-            echo "==> Fetching PR #${PR}"
-            git fetch origin "pull/${PR}/head:pr-${PR}"
-            git merge --no-ff --no-edit "pr-${PR}"
-          done
-          echo "==> Resulting HEAD:"
-          git --no-pager log --oneline -n 5
-
-      - name: Patch middleware to treat APP_HOST as the app domain
-        working-directory: ${{ env.WORKFLOW_TARGET_DIR }}/papermark-src
-        run: |
-          set -euo pipefail
-          # Upstream hardcodes papermark.io/papermark.com as the "app" hosts; every
-          # other host is routed to DomainMiddleware (custom document-sharing
-          # domains) and never reaches /login or /dashboard. Add our host to the
-          # app-host allowlist. NEXT_PUBLIC_APP_BASE_HOST is inlined at build time.
-          perl -0pi -e 's/host\?\.includes\("localhost"\) \|\|/host?.includes("localhost") ||\n        (!!process.env.NEXT_PUBLIC_APP_BASE_HOST \&\&\n          host?.includes(process.env.NEXT_PUBLIC_APP_BASE_HOST)) ||/' middleware.ts
-          grep -q 'NEXT_PUBLIC_APP_BASE_HOST' middleware.ts || { echo "middleware patch failed"; exit 1; }
-          echo "==> patched isCustomDomain:"
-          grep -n -A8 'function isCustomDomain' middleware.ts
-
-      - name: Provide modules missing from the public repo
-        working-directory: ${{ env.WORKFLOW_TARGET_DIR }}/papermark-src
-        run: |
-          set -euo pipefail
-          # Even at the pinned ref, three @/lib modules referenced by the code
-          # were never published to the public repo. Recreate them from their
-          # observed call sites so `next build` compiles.
-          mkdir -p lib/api/auth lib/oauth
-
-          if [ ! -f lib/landing-ab-client.ts ]; then
-            cat > lib/landing-ab-client.ts <<'TS'
-          // Landing-page A/B experiment registration (not published upstream).
-          // Self-host runs no landing experiments.
-          export function registerLandingVariant(_posthog: unknown): void {}
-          TS
-          fi
-
-          if [ ! -f lib/oauth/scopes.ts ]; then
-            cat > lib/oauth/scopes.ts <<'TS'
-          // Token scope catalog (not published upstream). Presets per the
-          // RestrictedToken.scopes schema comment; granular list covers the
-          // core resources.
-          export const PRESET_SCOPES: readonly string[] = ["apis.all", "apis.read"];
-          export const GRANULAR_SCOPES: readonly string[] = [
-            "documents.read",
-            "documents.write",
-            "links.read",
-            "links.write",
-            "datarooms.read",
-            "datarooms.write",
-          ];
-          TS
-          fi
-
-          if [ ! -f lib/api/auth/restricted-tokens.ts ]; then
-            cat > lib/api/auth/restricted-tokens.ts <<'TS'
-          // Restricted-token helpers (not published upstream), reconstructed
-          // from call sites in pages/api/teams/[teamId]/{tokens,remove-teammate}.
-          import { z } from "zod";
-
-          import prisma from "@/lib/prisma";
-
-          export const RestrictedTokenSubjectTypeSchema = z.enum(["user", "machine"]);
-          export type RestrictedTokenSubjectType = z.infer<
-            typeof RestrictedTokenSubjectTypeSchema
-          >;
-
-          export function parseRestrictedTokenSubjectType(
-            value: unknown,
-          ): RestrictedTokenSubjectType {
-            const parsed = RestrictedTokenSubjectTypeSchema.safeParse(
-              typeof value === "string" ? value.trim().toLowerCase() : value,
-            );
-            return parsed.success ? parsed.data : "user";
-          }
-
-          // "user" keys are revoked when the owner loses team access;
-          // "machine" keys stay team-scoped (see schema comment).
-          export async function revokeUserBoundTeamTokens(
-            userId: string,
-            teamId: string,
-          ): Promise<void> {
-            await prisma.restrictedToken.deleteMany({
-              where: { userId, teamId, subjectType: "user" },
-            });
-          }
-          TS
-          fi
-          # rateLimiters at the pinned ref lacks the bulkLinkImport limiter that
-          # lib/api/links/bulk-import.ts references (type error at build).
-          perl -0pi -e 's/export const rateLimiters = \{/export const rateLimiters = {\n  \/\/ 10 bulk link imports per minute per team\n  bulkLinkImport: new Ratelimit({\n    redis,\n    limiter: Ratelimit.slidingWindow(10, "1 m"),\n    prefix: "rl:bulk-link-import",\n    enableProtection: true,\n    analytics: true,\n  }),\n/' ee/features/security/lib/ratelimit.ts
-          grep -q 'bulkLinkImport' ee/features/security/lib/ratelimit.ts || { echo "ratelimit patch failed"; exit 1; }
-
-          # No *.svg module declaration ships in the public repo; two files
-          # import papermark-logo.svg and fail the typecheck without it.
-          cat > svg.d.ts <<'TS'
-          declare module "*.svg" {
-            const content: any;
-            export default content;
-          }
-          TS
-
-          echo "==> stubs in place:"
-          ls -la lib/landing-ab-client.ts lib/oauth/scopes.ts lib/api/auth/restricted-tokens.ts svg.d.ts
 
       - name: Set short SHA
         id: vars
@@ -185,8 +54,8 @@ jobs:
       - name: Build Papermark
         uses: docker/build-push-action@v6
         with:
-          context: ${{ env.WORKFLOW_TARGET_DIR }}/papermark-src
-          file: ${{ env.WORKFLOW_TARGET_DIR }}/Dockerfile.papermark
+          context: .
+          file: Dockerfile.papermark
           push: true
           load: false
           tags: |

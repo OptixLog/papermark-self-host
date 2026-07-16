@@ -5,9 +5,37 @@
 # ============================================================================
 # This Dockerfile builds Papermark, the open-source DocSend alternative
 # Based on Next.js with PostgreSQL, S3-compatible storage, and Resend for email
+#
+# SELF-CONTAINED: the build context is THIS repo. Stage 0 clones the pinned
+# upstream papermark source and applies the self-host patches (patches/), so
+# any Docker host (CI, Dokploy on-host builds) can build without a separate
+# upstream checkout step.
 # ============================================================================
 
 ARG NODE_VERSION=20
+
+# ============================================================================
+# Stage 0: Upstream source + self-host patches
+# ============================================================================
+FROM node:${NODE_VERSION}-alpine AS source
+
+RUN apk add --no-cache git
+
+# Pinned: newest public upstream commit that still builds. From 2026-05-05
+# (bf2ac83a and later) upstream main imports @/ee/* modules that are NOT in
+# the public repo (EE-only: dataroom-trial, branding, request-lists,
+# confidential-view, stripe/currency, ...) and `next build` fails on
+# module-not-found. Re-audit missing @/ee imports before bumping.
+ARG PAPERMARK_REPO=https://github.com/mfts/papermark.git
+ARG PAPERMARK_REF=f7a90495a1c2944737f76ed0605450e9e2af532a
+
+WORKDIR /src
+RUN git clone --filter=blob:none ${PAPERMARK_REPO} . && \
+    git checkout ${PAPERMARK_REF} && \
+    rm -rf .git
+
+COPY patches ./patches-selfhost
+RUN node patches-selfhost/apply.mjs && rm -rf patches-selfhost
 
 # ============================================================================
 # Stage 1: Dependencies
@@ -19,8 +47,8 @@ RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 
 # Copy package files
-COPY package.json package-lock.json* yarn.lock* pnpm-lock.yaml* ./
-COPY prisma ./prisma
+COPY --from=source /src/package.json /src/package-lock.json* /src/yarn.lock* /src/pnpm-lock.yaml* ./
+COPY --from=source /src/prisma ./prisma
 
 # Install dependencies based on the preferred package manager
 RUN \
@@ -43,9 +71,9 @@ FROM node:${NODE_VERSION}-alpine AS builder
 
 WORKDIR /app
 
-# Copy dependencies from deps stage
+# Copy dependencies from deps stage, patched sources from source stage
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY --from=source /src .
 
 # Set environment variables for build
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -54,21 +82,20 @@ ENV NODE_ENV=production
 # Generate Prisma Client
 RUN npx prisma generate
 
-# Copy next.config override if exists, otherwise use original
-# This allows customization for Docker builds
-COPY --chown=node:node next.config.docker.js* ./next.config.docker.js
-RUN if [ -f next.config.docker.js ]; then \
-      cp next.config.js next.config.original.js || true; \
-      cp next.config.docker.js next.config.js; \
-    fi
+# NOTE: next.config.docker.js is intentionally NOT copied in. Historically it
+# never reached the upstream build context, so the shipped builds always used
+# upstream next.config.mjs (non-standalone) — and the runtime start command
+# (npx next start) depends on that. Introducing it now would flip the build to
+# `output: standalone` and change the runtime contract.
 
 # Build the application
 # Note: NEXT_PUBLIC_* vars are INLINED into the client bundle at build time —
-# they cannot be changed at runtime. Pass the real values as build args.
-ARG NEXT_PUBLIC_BASE_URL=http://localhost:3000
-ARG NEXT_PUBLIC_APP_BASE_HOST=localhost
-ARG NEXT_PUBLIC_MARKETING_URL=http://localhost:3000
-ARG NEXT_PUBLIC_WEBHOOK_BASE_HOST=http://localhost:3000
+# they cannot be changed at runtime. Defaults are the documents.optixlog.com
+# deployment; override via build args for other installs.
+ARG NEXT_PUBLIC_BASE_URL=https://documents.optixlog.com
+ARG NEXT_PUBLIC_APP_BASE_HOST=documents.optixlog.com
+ARG NEXT_PUBLIC_MARKETING_URL=https://documents.optixlog.com
+ARG NEXT_PUBLIC_WEBHOOK_BASE_HOST=documents.optixlog.com
 ARG NEXT_PUBLIC_UPLOAD_TRANSPORT=s3
 ENV NEXT_PUBLIC_BASE_URL=${NEXT_PUBLIC_BASE_URL}
 ENV NEXTAUTH_URL=${NEXT_PUBLIC_BASE_URL}
