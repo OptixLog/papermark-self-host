@@ -12,7 +12,12 @@ env:
   REGISTRY_IP: ${{ secrets.REGISTRY_IP }} # optional: pin host->IP through WG
   IMAGE_PREFIX: ${{ secrets.IMAGE_PREFIX || 'ghcr.io/optixlog' }} # this repo's token can only push to ghcr.io/optixlog
   PAPERMARK_REPO: mfts/papermark
-  PAPERMARK_REF: main
+  # Pinned: newest public commit that still builds. From 2026-05-05 onward
+  # (bf2ac83a and later) upstream main imports @/ee/* modules that are NOT in
+  # the public repo (EE-only code: dataroom-trial, branding, request-lists,
+  # confidential-view, stripe/currency, ...) and `next build` fails on
+  # module-not-found. Re-audit missing @/ee imports before bumping this.
+  PAPERMARK_REF: f7a90495a1c2944737f76ed0605450e9e2af532a
   PAPERMARK_PRS: "" # e.g. "123,456" (leave empty to skip)
   WORKFLOW_TARGET_DIR: "." # no trailing slash
   USE_WG: ${{ secrets.WG_CONF != '' }}
