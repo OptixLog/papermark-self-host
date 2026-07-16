@@ -70,7 +70,6 @@ jobs:
             NEXT_PUBLIC_BASE_URL=https://documents.optixlog.com
             NEXT_PUBLIC_APP_BASE_HOST=documents.optixlog.com
             NEXT_PUBLIC_MARKETING_URL=https://documents.optixlog.com
-            NEXT_PUBLIC_WEBHOOK_BASE_HOST=documents.optixlog.com
             NEXT_PUBLIC_UPLOAD_TRANSPORT=s3
           cache-from: type=gha,scope=papermark-app-n20
           cache-to: type=gha,mode=max,scope=papermark-app-n20

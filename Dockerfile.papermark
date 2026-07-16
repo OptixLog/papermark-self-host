@@ -95,12 +95,15 @@ RUN npx prisma generate
 ARG NEXT_PUBLIC_BASE_URL=https://documents.optixlog.com
 ARG NEXT_PUBLIC_APP_BASE_HOST=documents.optixlog.com
 ARG NEXT_PUBLIC_MARKETING_URL=https://documents.optixlog.com
-ARG NEXT_PUBLIC_WEBHOOK_BASE_HOST=documents.optixlog.com
+# NEXT_PUBLIC_WEBHOOK_BASE_HOST is deliberately NOT set: the middleware treats
+# any request whose Host equals it as an incoming-webhook request and 404s
+# every path except /services/* — setting it to the app host takes the whole
+# site down. If incoming webhooks are ever needed, give them a DEDICATED
+# subdomain, never the app host.
 ARG NEXT_PUBLIC_UPLOAD_TRANSPORT=s3
 ENV NEXT_PUBLIC_BASE_URL=${NEXT_PUBLIC_BASE_URL}
 ENV NEXTAUTH_URL=${NEXT_PUBLIC_BASE_URL}
 ENV NEXT_PUBLIC_APP_BASE_HOST=${NEXT_PUBLIC_APP_BASE_HOST}
-ENV NEXT_PUBLIC_WEBHOOK_BASE_HOST=${NEXT_PUBLIC_WEBHOOK_BASE_HOST}
 ENV NEXT_PUBLIC_MARKETING_URL=${NEXT_PUBLIC_MARKETING_URL}
 ENV NEXT_PUBLIC_UPLOAD_TRANSPORT=${NEXT_PUBLIC_UPLOAD_TRANSPORT}
 ENV DATABASE_URL=postgresql://dummy:dummy@localhost:5432/dummy
