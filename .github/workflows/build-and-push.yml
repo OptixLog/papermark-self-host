@@ -77,6 +77,77 @@ jobs:
           echo "==> patched isCustomDomain:"
           grep -n -A8 'function isCustomDomain' middleware.ts
 
+      - name: Provide modules missing from the public repo
+        working-directory: ${{ env.WORKFLOW_TARGET_DIR }}/papermark-src
+        run: |
+          set -euo pipefail
+          # Even at the pinned ref, three @/lib modules referenced by the code
+          # were never published to the public repo. Recreate them from their
+          # observed call sites so `next build` compiles.
+          mkdir -p lib/api/auth lib/oauth
+
+          if [ ! -f lib/landing-ab-client.ts ]; then
+            cat > lib/landing-ab-client.ts <<'TS'
+          // Landing-page A/B experiment registration (not published upstream).
+          // Self-host runs no landing experiments.
+          export function registerLandingVariant(_posthog: unknown): void {}
+          TS
+          fi
+
+          if [ ! -f lib/oauth/scopes.ts ]; then
+            cat > lib/oauth/scopes.ts <<'TS'
+          // Token scope catalog (not published upstream). Presets per the
+          // RestrictedToken.scopes schema comment; granular list covers the
+          // core resources.
+          export const PRESET_SCOPES: readonly string[] = ["apis.all", "apis.read"];
+          export const GRANULAR_SCOPES: readonly string[] = [
+            "documents.read",
+            "documents.write",
+            "links.read",
+            "links.write",
+            "datarooms.read",
+            "datarooms.write",
+          ];
+          TS
+          fi
+
+          if [ ! -f lib/api/auth/restricted-tokens.ts ]; then
+            cat > lib/api/auth/restricted-tokens.ts <<'TS'
+          // Restricted-token helpers (not published upstream), reconstructed
+          // from call sites in pages/api/teams/[teamId]/{tokens,remove-teammate}.
+          import { z } from "zod";
+
+          import prisma from "@/lib/prisma";
+
+          export const RestrictedTokenSubjectTypeSchema = z.enum(["user", "machine"]);
+          export type RestrictedTokenSubjectType = z.infer<
+            typeof RestrictedTokenSubjectTypeSchema
+          >;
+
+          export function parseRestrictedTokenSubjectType(
+            value: unknown,
+          ): RestrictedTokenSubjectType {
+            const parsed = RestrictedTokenSubjectTypeSchema.safeParse(
+              typeof value === "string" ? value.trim().toLowerCase() : value,
+            );
+            return parsed.success ? parsed.data : "user";
+          }
+
+          // "user" keys are revoked when the owner loses team access;
+          // "machine" keys stay team-scoped (see schema comment).
+          export async function revokeUserBoundTeamTokens(
+            userId: string,
+            teamId: string,
+          ): Promise<void> {
+            await prisma.restrictedToken.deleteMany({
+              where: { userId, teamId, subjectType: "user" },
+            });
+          }
+          TS
+          fi
+          echo "==> stubs in place:"
+          ls -la lib/landing-ab-client.ts lib/oauth/scopes.ts lib/api/auth/restricted-tokens.ts
+
       - name: Set short SHA
         id: vars
         run: echo "sha=${GITHUB_SHA::12}" >> $GITHUB_OUTPUT
