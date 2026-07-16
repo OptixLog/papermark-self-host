@@ -59,6 +59,19 @@ jobs:
           echo "==> Resulting HEAD:"
           git --no-pager log --oneline -n 5
 
+      - name: Patch middleware to treat APP_HOST as the app domain
+        working-directory: ${{ env.WORKFLOW_TARGET_DIR }}/papermark-src
+        run: |
+          set -euo pipefail
+          # Upstream hardcodes papermark.io/papermark.com as the "app" hosts; every
+          # other host is routed to DomainMiddleware (custom document-sharing
+          # domains) and never reaches /login or /dashboard. Add our host to the
+          # app-host allowlist. NEXT_PUBLIC_APP_BASE_HOST is inlined at build time.
+          perl -0pi -e 's/host\?\.includes\("localhost"\) \|\|/host?.includes("localhost") ||\n        (!!process.env.NEXT_PUBLIC_APP_BASE_HOST \&\&\n          host?.includes(process.env.NEXT_PUBLIC_APP_BASE_HOST)) ||/' middleware.ts
+          grep -q 'NEXT_PUBLIC_APP_BASE_HOST' middleware.ts || { echo "middleware patch failed"; exit 1; }
+          echo "==> patched isCustomDomain:"
+          grep -n -A8 'function isCustomDomain' middleware.ts
+
       - name: Set short SHA
         id: vars
         run: echo "sha=${GITHUB_SHA::12}" >> $GITHUB_OUTPUT
@@ -95,6 +108,11 @@ jobs:
             BUILDKIT_INLINE_CACHE=1
             NODE_VERSION=22
             OPENAI_API_KEY=sk-test12345
+            NEXT_PUBLIC_BASE_URL=https://documents.optixlog.com
+            NEXT_PUBLIC_APP_BASE_HOST=documents.optixlog.com
+            NEXT_PUBLIC_MARKETING_URL=https://documents.optixlog.com
+            NEXT_PUBLIC_WEBHOOK_BASE_HOST=documents.optixlog.com
+            NEXT_PUBLIC_UPLOAD_TRANSPORT=s3
           cache-from: type=gha,scope=papermark-app-n20
           cache-to: type=gha,mode=max,scope=papermark-app-n20
 

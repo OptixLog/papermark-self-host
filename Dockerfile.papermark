@@ -63,13 +63,19 @@ RUN if [ -f next.config.docker.js ]; then \
     fi
 
 # Build the application
-# Note: Some env vars need to be present at build time for Next.js
-# Set dummy values for build - real values come from environment at runtime
-ENV NEXT_PUBLIC_BASE_URL=http://localhost:3000
-ENV NEXTAUTH_URL=http://localhost:3000
-ENV NEXT_PUBLIC_APP_BASE_HOST=http://localhost:3000
-ENV NEXT_PUBLIC_WEBHOOK_BASE_HOST=http://localhost:3000
-ENV NEXT_PUBLIC_MARKETING_URL=http://localhost:3000
+# Note: NEXT_PUBLIC_* vars are INLINED into the client bundle at build time —
+# they cannot be changed at runtime. Pass the real values as build args.
+ARG NEXT_PUBLIC_BASE_URL=http://localhost:3000
+ARG NEXT_PUBLIC_APP_BASE_HOST=localhost
+ARG NEXT_PUBLIC_MARKETING_URL=http://localhost:3000
+ARG NEXT_PUBLIC_WEBHOOK_BASE_HOST=http://localhost:3000
+ARG NEXT_PUBLIC_UPLOAD_TRANSPORT=s3
+ENV NEXT_PUBLIC_BASE_URL=${NEXT_PUBLIC_BASE_URL}
+ENV NEXTAUTH_URL=${NEXT_PUBLIC_BASE_URL}
+ENV NEXT_PUBLIC_APP_BASE_HOST=${NEXT_PUBLIC_APP_BASE_HOST}
+ENV NEXT_PUBLIC_WEBHOOK_BASE_HOST=${NEXT_PUBLIC_WEBHOOK_BASE_HOST}
+ENV NEXT_PUBLIC_MARKETING_URL=${NEXT_PUBLIC_MARKETING_URL}
+ENV NEXT_PUBLIC_UPLOAD_TRANSPORT=${NEXT_PUBLIC_UPLOAD_TRANSPORT}
 ENV DATABASE_URL=postgresql://dummy:dummy@localhost:5432/dummy
 ENV OPENAI_API_KEY=sk-test12345
 ENV HANKO_API_KEY=123dummy
@@ -157,8 +163,13 @@ echo "======================================"
 echo "Starting Papermark..."
 echo "======================================"
 
-#exec npm start
-exec node server.js
+# The upstream build is NOT a standalone output (next.config.docker.js is not
+# in the build context), so there is no /app/server.js. Fall back to next start.
+if [ -f server.js ]; then
+    exec node server.js
+else
+    exec npx next start -H 0.0.0.0 -p "${PORT:-3000}"
+fi
 EOF
 
 # Set proper permissions
@@ -172,6 +183,6 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD curl -f http://localhost:3000/api/health || exit 1
+  CMD curl -f http://127.0.0.1:3000/api/health || exit 1
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
