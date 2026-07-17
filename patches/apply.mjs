@@ -9,13 +9,13 @@ import { fileURLToPath } from "node:url";
 const patchesDir = dirname(fileURLToPath(import.meta.url));
 const root = process.cwd();
 
-function patchFile(relPath, find, replace, mustContainAfter) {
+function patchFile(relPath, find, replace, mustContainAfter, { all = false } = {}) {
   const path = join(root, relPath);
   const src = readFileSync(path, "utf8");
   if (!src.includes(find)) {
     throw new Error(`${relPath}: patch anchor not found: ${find}`);
   }
-  const out = src.replace(find, replace);
+  const out = all ? src.split(find).join(replace) : src.replace(find, replace);
   if (!out.includes(mustContainAfter)) {
     throw new Error(`${relPath}: patch verification failed`);
   }
@@ -93,7 +93,66 @@ patchFile(
   "welcome-user scheduling failed",
 );
 
-// 5. Modules referenced by the code but never published to the public repo.
+// 5. MinIO (S3-compatible) addressing. The AWS SDK defaults to
+//    virtual-hosted-style URLs, so with a custom endpoint every presigned
+//    URL targets https://<bucket>.minio.optixlog.com — NXDOMAIN, all uploads
+//    and downloads fail. Force path-style whenever a custom endpoint is
+//    configured (both the shared clients and the tus MultiRegionS3Store,
+//    which additionally never forwarded the endpoint at all and would have
+//    talked to real AWS).
+patchFile(
+  "lib/files/aws-client.ts",
+  `  return new S3Client({
+    endpoint: config.endpoint || undefined,
+    region: config.region,`,
+  `  return new S3Client({
+    endpoint: config.endpoint || undefined,
+    forcePathStyle: !!config.endpoint,
+    region: config.region,`,
+  "forcePathStyle: !!config.endpoint",
+  { all: true },
+);
+patchFile(
+  "ee/features/storage/s3-store.ts",
+  `    const superS3Config: any = {
+      bucket: euConfig.bucket,
+      region: euConfig.region,`,
+  `    const superS3Config: any = {
+      bucket: euConfig.bucket,
+      region: euConfig.region,
+      ...(euConfig.endpoint
+        ? { endpoint: euConfig.endpoint, forcePathStyle: true }
+        : {}),`,
+  "endpoint: euConfig.endpoint, forcePathStyle: true",
+);
+patchFile(
+  "ee/features/storage/s3-store.ts",
+  `    const euS3Config: any = {
+      bucket: euConfig.bucket,
+      region: euConfig.region,`,
+  `    const euS3Config: any = {
+      bucket: euConfig.bucket,
+      region: euConfig.region,
+      ...(euConfig.endpoint
+        ? { endpoint: euConfig.endpoint, forcePathStyle: true }
+        : {}),`,
+  "const euS3Config",
+);
+patchFile(
+  "ee/features/storage/s3-store.ts",
+  `      const usS3Config: any = {
+        bucket: this.usConfig.bucket,
+        region: this.usConfig.region,`,
+  `      const usS3Config: any = {
+        bucket: this.usConfig.bucket,
+        region: this.usConfig.region,
+        ...(this.usConfig.endpoint
+          ? { endpoint: this.usConfig.endpoint, forcePathStyle: true }
+          : {}),`,
+  "endpoint: this.usConfig.endpoint, forcePathStyle: true",
+);
+
+// 6. Modules referenced by the code but never published to the public repo.
 cpSync(join(patchesDir, "files"), root, { recursive: true });
 console.log("copied reconstructed modules (lib/*, svg.d.ts)");
 
