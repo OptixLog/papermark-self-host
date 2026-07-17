@@ -100,12 +100,16 @@ patchFile(
 //    configured (both the shared clients and the tus MultiRegionS3Store,
 //    which additionally never forwarded the endpoint at all and would have
 //    talked to real AWS).
+// Anchor WITHOUT the leading "return": the file constructs S3Client three
+// times — getS3Client, getS3ClientForTeam (both `return new S3Client`) and
+// getTeamS3ClientAndConfig (`const client = new S3Client`). Missing the third
+// broke tus finish/delete/stream/copy while presigned uploads worked.
 patchFile(
   "lib/files/aws-client.ts",
-  `  return new S3Client({
+  `new S3Client({
     endpoint: config.endpoint || undefined,
     region: config.region,`,
-  `  return new S3Client({
+  `new S3Client({
     endpoint: config.endpoint || undefined,
     forcePathStyle: !!config.endpoint,
     region: config.region,`,
