@@ -44,7 +44,27 @@ patchFile(
   "bulkLinkImport",
 );
 
-// 3. Modules referenced by the code but never published to the public repo.
+// 3. Session cookie on self-host HTTPS. Upstream keys the "__Secure-" cookie
+//    prefix (and Secure flag) off VERCEL_URL, so on a non-Vercel HTTPS deploy
+//    the cookie is written as plain "next-auth.session-token" — but
+//    middleware getToken() on HTTPS looks for the "__Secure-" name and never
+//    sees the session (login succeeds, /dashboard bounces to /login).
+//    Key it off NEXTAUTH_URL being https instead, and never set the
+//    hardcoded .papermark.com cookie domain off Vercel.
+patchFile(
+  "lib/auth/auth-options.ts",
+  "const VERCEL_DEPLOYMENT = !!process.env.VERCEL_URL;",
+  'const VERCEL_DEPLOYMENT =\n  !!process.env.VERCEL_URL || !!process.env.NEXTAUTH_URL?.startsWith("https://");',
+  'NEXTAUTH_URL?.startsWith("https://")',
+);
+patchFile(
+  "lib/auth/auth-options.ts",
+  'domain: VERCEL_DEPLOYMENT ? ".papermark.com" : undefined,',
+  "domain: process.env.VERCEL_URL ? \".papermark.com\" : undefined,",
+  'process.env.VERCEL_URL ? ".papermark.com"',
+);
+
+// 4. Modules referenced by the code but never published to the public repo.
 cpSync(join(patchesDir, "files"), root, { recursive: true });
 console.log("copied reconstructed modules (lib/*, svg.d.ts)");
 
