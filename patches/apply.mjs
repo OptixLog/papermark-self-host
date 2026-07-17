@@ -156,7 +156,75 @@ patchFile(
   "endpoint: this.usConfig.endpoint, forcePathStyle: true",
 );
 
-// 6. Modules referenced by the code but never published to the public repo.
+// 6. Email via SMTP (AWS SES) instead of Resend. sendEmail() throws when
+//    RESEND_API_KEY is unset, which breaks teammate invites, magic-link
+//    sign-in, and view notifications on self-host. When EMAIL_SMTP_HOST is
+//    configured, route through nodemailer -> SES SMTP and rewrite the
+//    hardcoded papermark.com from-addresses onto EMAIL_FROM_DOMAIN.
+//    (resend.batch.send / resend.contacts remain Resend-only: year-in-review
+//    and newsletter-subscribe, both irrelevant on self-host.)
+patchFile(
+  "lib/resend.ts",
+  `import prisma from "@/lib/prisma";`,
+  `import { getSmtpTransport, sendViaSmtp } from "@/lib/emails/smtp-transport";
+import prisma from "@/lib/prisma";`,
+  "smtp-transport",
+);
+patchFile(
+  "lib/resend.ts",
+  `}) => {
+  if (!resend) {
+    // Throw an error if resend is not initialized
+    throw new Error("Resend not initialized");
+  }`,
+  `}) => {
+  if (!resend && !getSmtpTransport()) {
+    // Throw an error if no email transport is configured
+    throw new Error("Resend not initialized");
+  }`,
+  "!resend && !getSmtpTransport()",
+);
+patchFile(
+  "lib/resend.ts",
+  `  try {
+    const { data, error } = await resend.emails.send({`,
+  `  if (!resend) {
+    // Self-host SMTP path (AWS SES). Mirrors the Resend call below.
+    try {
+      return await sendViaSmtp({
+        from: fromAddress,
+        to: test ? "delivered@resend.dev" : to,
+        cc,
+        replyTo: marketing ? "marc@papermark.com" : replyTo,
+        subject,
+        html,
+        text: plainText,
+        headers: {
+          "X-Entity-Ref-ID": nanoid(),
+          ...(unsubscribeUrl
+            ? {
+                "List-Unsubscribe": \`<\${unsubscribeUrl}>\`,
+                "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+              }
+            : {}),
+        },
+      });
+    } catch (exception) {
+      log({
+        message: \`Unexpected error when sending email via SMTP: \${exception}\`,
+        type: "error",
+        mention: true,
+      });
+      throw exception;
+    }
+  }
+
+  try {
+    const { data, error } = await resend.emails.send({`,
+  "sendViaSmtp({",
+);
+
+// 7. Modules referenced by the code but never published to the public repo.
 cpSync(join(patchesDir, "files"), root, { recursive: true });
 console.log("copied reconstructed modules (lib/*, svg.d.ts)");
 
