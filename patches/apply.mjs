@@ -64,7 +64,36 @@ patchFile(
   'process.env.VERCEL_URL ? ".papermark.com"',
 );
 
-// 4. Modules referenced by the code but never published to the public repo.
+// 4. QStash is not configured on self-host; the createUser event's
+//    publishJSON (15-min delayed welcome email) throws "invalid token",
+//    NextAuth reports CREATE_USER_EVENT_ERROR, and every NEW user's FIRST
+//    login attempt bounces back to /login (the retry works because the user
+//    row already exists). Welcome scheduling is best-effort — never let it
+//    abort sign-in.
+patchFile(
+  "lib/auth/auth-options.ts",
+  `      await qstash.publishJSON({
+        url: \`\${process.env.NEXT_PUBLIC_BASE_URL ?? getMainDomainUrl()}/api/cron/welcome-user\`,
+        body: {
+          userId: message.user.id,
+        },
+        delay: 15 * 60,
+      });`,
+  `      try {
+        await qstash.publishJSON({
+          url: \`\${process.env.NEXT_PUBLIC_BASE_URL ?? getMainDomainUrl()}/api/cron/welcome-user\`,
+          body: {
+            userId: message.user.id,
+          },
+          delay: 15 * 60,
+        });
+      } catch (error) {
+        console.warn("createUser: welcome-user scheduling failed (QStash unconfigured?)", error);
+      }`,
+  "welcome-user scheduling failed",
+);
+
+// 5. Modules referenced by the code but never published to the public repo.
 cpSync(join(patchesDir, "files"), root, { recursive: true });
 console.log("copied reconstructed modules (lib/*, svg.d.ts)");
 
