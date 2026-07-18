@@ -209,7 +209,7 @@ patchFile(
         from: fromAddress,
         to: test ? "delivered@resend.dev" : to,
         cc,
-        replyTo: marketing ? "marc@papermark.com" : replyTo,
+        replyTo: marketing ? "founders@optixlog.com" : replyTo,
         subject,
         html,
         text: plainText,
@@ -436,8 +436,751 @@ patchFile(
   "baseURL: process.env.NEXT_PUBLIC_TRIGGER_API_URL,\n  });",
 );
 
-// 12. Modules referenced by the code but never published to the public repo.
+// 12. Copy reconstructed modules referenced by the code but not published in
+// the upstream repo. Public asset overlays use stable upstream paths.
 cpSync(join(patchesDir, "files"), root, { recursive: true });
-console.log("copied reconstructed modules (lib/*, svg.d.ts)");
+console.log("copied reconstructed modules and white-label assets");
+
+// 13. OptixLog Documents white-label pass. Keep functional Papermark sentinel
+// values and cookie/host plumbing intact; these replacements target visible
+// labels, metadata, links, viewer chrome, and email copy only.
+function patchBrandingFile(relPath, replacements) {
+  if (replacements.length === 0) return;
+  const path = join(root, relPath);
+  let out = readFileSync(path, "utf8");
+  for (const [find, replace, { all = true } = {}] of replacements) {
+    if (!out.includes(find)) {
+      throw new Error(`${relPath}: branding anchor not found: ${find}`);
+    }
+    out = all ? out.split(find).join(replace) : out.replace(find, replace);
+    if (replace && !out.includes(replace)) {
+      throw new Error(`${relPath}: branding verification failed: ${replace}`);
+    }
+  }
+  if (/OptixLog Documents[A-Za-z]/.test(out)) {
+    throw new Error(`${relPath}: branding replacement corrupted an identifier`);
+  }
+  writeFileSync(path, out);
+  console.log(`branded ${relPath}`);
+}
+
+function removeBrandingRange(relPath, start, end, replacement = "") {
+  const path = join(root, relPath);
+  const src = readFileSync(path, "utf8");
+  const startIndex = src.indexOf(start);
+  if (startIndex === -1) throw new Error(`${relPath}: branding range start not found`);
+  const endIndex = src.indexOf(end, startIndex + start.length);
+  if (endIndex === -1) throw new Error(`${relPath}: branding range end not found`);
+  const out = src.slice(0, startIndex) + replacement + src.slice(endIndex + end.length);
+  writeFileSync(path, out);
+  console.log(`removed vendor branding from ${relPath}`);
+}
+
+patchBrandingFile("app/layout.tsx", [
+  ["Papermark | The Open Source DocSend Alternative", "OptixLog Documents | Secure Document Sharing"],
+  ["Papermark is an open-source document sharing infrastructure. Free alternative to Docsend with custom domain. Manage secure document sharing with real-time analytics.", "OptixLog Documents provides secure document sharing, data rooms, and real-time engagement analytics."],
+  ["https://www.papermark.com", "https://documents.optixlog.com"],
+  ['siteName: "Papermark"', 'siteName: "OptixLog Documents"'],
+  ['    creator: "@papermarkio",\n', ""],
+]);
+
+patchBrandingFile("pages/_app.tsx", [
+  ["Papermark | The Open Source DocSend Alternative", "OptixLog Documents | Secure Document Sharing"],
+  ["Papermark is an open-source document sharing alternative to DocSend with built-in analytics.", "OptixLog Documents provides secure document sharing, data rooms, and real-time engagement analytics."],
+  ["https://www.papermark.com/_static/meta-image.png", "https://documents.optixlog.com/_static/meta-image.png"],
+  ["https://www.papermark.com", "https://documents.optixlog.com"],
+  ['        <meta name="twitter:site" content="@papermarkio" />\n', ""],
+  ['        <meta name="twitter:creator" content="@papermarkio" />\n', ""],
+  ['content="Papermark" key="tw-title"', 'content="OptixLog Documents" key="tw-title"'],
+  ['content="#000000"', 'content="#1a1a1a"'],
+]);
+
+patchBrandingFile("lib/utils.ts", [
+  ['title = "Papermark | The Open Source DocSend Alternative"', 'title = "OptixLog Documents | Secure Document Sharing"'],
+  ['description = "Papermark is an open-source document sharing alternative to DocSend with built-in engagement analytics and 100% white-labeling."', 'description = "OptixLog Documents provides secure document sharing, data rooms, and real-time engagement analytics."'],
+  ['image = "https://www.papermark.com/_static/meta-image.png"', 'image = "https://documents.optixlog.com/_static/meta-image.png"'],
+  ['      creator: "@papermarkio",\n', ""],
+]);
+patchBrandingFile("lib/constants.ts", [["Papermark - Secure Data Room Infrastructure for the modern web", "OptixLog Documents - Secure document sharing and data rooms"]]);
+
+for (const relPath of [
+  "app/(auth)/login/page.tsx",
+  "app/(auth)/register/page.tsx",
+  "app/(auth)/auth/email/[[...params]]/page.tsx",
+  "app/(auth)/verify/invitation/page.tsx",
+  "app/(auth)/auth/confirm-email-change/[token]/page.tsx",
+]) {
+  patchBrandingFile(relPath, [
+    ["https://www.papermark.com", "https://documents.optixlog.com"],
+    ["Papermark", "OptixLog Documents"],
+    ['    creator: "@papermarkio",\n', ""],
+  ]);
+}
+
+removeBrandingRange(
+  "app/(auth)/login/page-client.tsx",
+  "          <p className=\"mt-10 w-full max-w-md px-4 text-xs text-muted-foreground sm:px-12\">",
+  "          </p>",
+  `          <p className="mt-10 w-full max-w-md px-4 text-xs text-muted-foreground sm:px-12">
+            By continuing, you acknowledge the{" "}
+            <a href="https://optixlog.com/privacy-policy" target="_blank" rel="noopener noreferrer" className="underline">
+              Privacy Policy
+            </a>.
+          </p>`,
+);
+patchBrandingFile("app/(auth)/login/page-client.tsx", [
+  ['import { LogoCloud } from "@/components/shared/logo-cloud";\n', ""],
+  ["https://www.papermark.com", "https://documents.optixlog.com"],
+  ['alt="Papermark Logo"', 'alt="OptixLog Documents logo"'],
+  ["Welcome to Papermark", "Welcome to OptixLog Documents"],
+]);
+removeBrandingRange(
+  "app/(auth)/login/page-client.tsx",
+  '      <div\n        className="relative hidden w-full justify-center overflow-hidden md:flex md:w-[45%] lg:w-[45%]"',
+  "      </div>\n    </div>",
+  `      <div
+        className="relative hidden w-full justify-center overflow-hidden md:flex md:w-[45%] lg:w-[45%]"
+        style={{ backgroundColor: "#1a1a1a" }}
+      >
+        <div className="flex h-full w-full items-center justify-center px-10 py-12">
+          <div className="w-full max-w-md">
+            <img
+              src="/_static/papermark-logo-light.svg"
+              alt="OptixLog Documents"
+              className="h-8 w-auto"
+            />
+            <div className="mt-16">
+              <h2 className="text-balance text-3xl font-semibold tracking-tight text-white">
+                Share sensitive documents with clarity.
+              </h2>
+              <p className="mt-5 max-w-sm text-base leading-7 text-white/70">
+                Secure links, data rooms, and engagement analytics in one workspace.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`,
+);
+
+patchBrandingFile("app/(auth)/register/page-client.tsx", [
+  ["PapermarkLogo", "OptixLogDocumentsLogo"],
+  ["https://www.papermark.com", "https://documents.optixlog.com"],
+  ['alt="Papermark Logo"', 'alt="OptixLog Documents logo"'],
+]);
+patchBrandingFile("app/(auth)/verify/invitation/InvitationStatusContent.tsx", [
+  ["Create your own Papermark account", "Create your own OptixLog Documents account"],
+]);
+removeBrandingRange(
+  "app/(auth)/verify/invitation/page.tsx",
+  "                <p className=\"mt-10 w-full max-w-md px-4 text-xs text-muted-foreground sm:px-16\">",
+  "                </p>",
+  `                <p className="mt-10 w-full max-w-md px-4 text-xs text-muted-foreground sm:px-16">
+                  By accepting this invitation, you acknowledge the{" "}
+                  <a
+                    href="https://optixlog.com/privacy-policy"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-gray-900"
+                  >
+                    Privacy Policy
+                  </a>
+                  .
+                </p>`,
+);
+patchBrandingFile("app/(auth)/auth/saml/page.tsx", [
+  ["SSO Login | Papermark", "SSO Login | OptixLog Documents"],
+]);
+removeBrandingRange(
+  "app/(auth)/auth/email/[[...params]]/page-client.tsx",
+  "          <p className=\"mt-10 w-full max-w-md px-4 text-xs text-muted-foreground sm:px-12\">",
+  "          </p>",
+  `          <p className="mt-10 w-full max-w-md px-4 text-xs text-muted-foreground sm:px-12">
+            By continuing, you acknowledge the{" "}
+            <a href="https://optixlog.com/privacy-policy" target="_blank" rel="noopener noreferrer" className="underline">
+              Privacy Policy
+            </a>.
+          </p>`,
+);
+patchBrandingFile("app/(auth)/auth/email/[[...params]]/page-client.tsx", [
+  ['import { LogoCloud } from "@/components/shared/logo-cloud";\n', ""],
+  ["https://www.papermark.com", "https://documents.optixlog.com"],
+  ['alt="Papermark Logo"', 'alt="OptixLog Documents logo"'],
+]);
+removeBrandingRange(
+  "app/(auth)/auth/email/[[...params]]/page-client.tsx",
+  "\nfunction TestimonialSection() {",
+  "\n}\n",
+  `
+function TestimonialSection() {
+  return (
+    <div
+      className="relative hidden w-full justify-center overflow-hidden md:flex md:w-[45%] lg:w-[45%]"
+      style={{ backgroundColor: "#1a1a1a" }}
+    >
+      <div className="flex h-full w-full items-center justify-center px-10 py-12">
+        <div className="w-full max-w-md">
+          <img
+            src="/_static/papermark-logo-light.svg"
+            alt="OptixLog Documents"
+            className="h-8 w-auto"
+          />
+          <div className="mt-16">
+            <h2 className="text-balance text-3xl font-semibold tracking-tight text-white">
+              Share sensitive documents with clarity.
+            </h2>
+            <p className="mt-5 max-w-sm text-base leading-7 text-white/70">
+              Secure links, data rooms, and engagement analytics in one workspace.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+`,
+);
+
+for (const relPath of ["components/sidebar/nav-user.tsx", "components/profile-menu.tsx"]) {
+  patchBrandingFile(relPath, [['import { useState } from "react";\n\n', ""]]);
+}
+patchBrandingFile("components/sidebar/nav-user.tsx", [
+  [`  FileTextIcon,
+`, ""],
+  [`import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+`, ""],
+  [`interface Article {
+  data: {
+    slug: string;
+    title: string;
+    description?: string;
+  };
+}
+
+`, ""],
+  [`  const [searchOpen, setSearchOpen] = useState(false);
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchArticles = async (query?: string) => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        locale: "en", // or get this from your app's locale
+        ...(query && { q: query }),
+      });
+
+      const res = await fetch(\`/api/help?\${params}\`);
+      const data = await res.json();
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      setArticles(data.articles || []);
+    } catch (error) {
+      console.error("Error fetching articles:", error);
+      setArticles([]); // Set empty array on error
+    } finally {
+      setLoading(false);
+    }
+  };
+
+`, ""],
+  [`                <DropdownMenuItem
+                  onClick={() => {
+                    setSearchOpen(true);
+                    fetchArticles();
+                  }}
+                >`, `                <DropdownMenuItem
+                  onClick={() => window.open("https://docs.optixlog.com", "_blank")}
+                >`],
+]);
+removeBrandingRange(
+  "components/sidebar/nav-user.tsx",
+  "\n      <Dialog open={searchOpen}",
+  "      </Dialog>",
+  "",
+);
+patchBrandingFile("components/profile-menu.tsx", [
+  [`import { HelpCircle, LogOut, Search } from "lucide-react";
+import { FileText } from "lucide-react";
+`, `import { HelpCircle, LogOut, Search } from "lucide-react";
+`],
+  ['import { SearchCommand } from "./search-command";\n', ""],
+  [`import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+`, ""],
+  [`// Define the Article interface
+interface Article {
+  data: {
+    slug: string;
+    title: string;
+    description?: string;
+  };
+}
+
+`, ""],
+  [`  const [searchOpen, setSearchOpen] = useState(false);
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchArticles = async (query?: string) => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        locale: "en", // or get this from your app's locale
+        ...(query && { q: query }),
+      });
+
+      console.log("Fetching articles..."); // Debug log
+      const res = await fetch(\`/api/help?\${params}\`);
+      const data = await res.json();
+
+      console.log("Received data:", data); // Debug log
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      setArticles(data.articles || []);
+    } catch (error) {
+      console.error("Error fetching articles:", error);
+      setArticles([]); // Set empty array on error
+    } finally {
+      setLoading(false);
+    }
+  };
+
+`, ""],
+  [`                    onClick={() => {
+                      setSearchOpen(true);
+                      fetchArticles();
+                    }}`, `                    onClick={() => {
+                      window.open("https://docs.optixlog.com", "_blank");
+                    }}`],
+  ["Need help?", "Documentation"],
+]);
+removeBrandingRange(
+  "components/profile-menu.tsx",
+  "\n      <Dialog open={searchOpen}",
+  "      </Dialog>",
+  "",
+);
+
+patchBrandingFile("components/sidebar/sidebar-panels.tsx", [
+  ['<Link href="/dashboard">P</Link>', '<Link href="/dashboard"><img src="/_static/papermark-p.svg" alt="OptixLog" className="size-7 rounded-md" /></Link>'],
+  ['<Link href="/dashboard">Papermark</Link>', '<Link href="/dashboard">OptixLog</Link>'],
+]);
+for (const relPath of [
+  "components/sidebar/nav-user.tsx",
+  "components/layouts/mobile-header.tsx",
+  "components/profile-menu.tsx",
+  "ee/features/dataroom-freeze/components/freeze-settings.tsx",
+]) {
+  const source = readFileSync(join(root, relPath), "utf8");
+  const replacements = [
+    ["support@papermark.com", "founders@optixlog.com"],
+    ["support@papermark.io", "founders@optixlog.com"],
+  ].filter(([find]) => source.includes(find));
+  patchBrandingFile(relPath, replacements);
+}
+patchBrandingFile("components/layouts/mobile-header.tsx", [["Papermark", "OptixLog Documents"]]);
+patchBrandingFile("components/layouts/mobile-more-menu.tsx", [["Upgrade Papermark", "Upgrade OptixLog Documents"]]);
+
+patchBrandingFile("lib/middleware/domain.ts", [
+  ["https://www.papermark.com", "https://documents.optixlog.com"],
+  ["Papermark - Secure Data Room Infrastructure for the modern web", "OptixLog Documents - Secure document sharing and data rooms"],
+]);
+for (const relPath of [
+  "lib/webhook/triggers/link-created.ts",
+  "lib/api/views/send-webhook-event.ts",
+]) {
+  patchBrandingFile(relPath, [
+    ["https://www.papermark.com/view/${link.id}", "https://documents.optixlog.com/view/${link.id}"],
+    ['link.domainId && link.domainSlug ? link.domainSlug : "papermark.com"', 'link.domainId && link.domainSlug ? link.domainSlug : "documents.optixlog.com"'],
+  ]);
+}
+
+patchBrandingFile("components/links/links-table.tsx", [["papermark.com/view/${link.id}", "documents.optixlog.com/view/${link.id}"]]);
+patchBrandingFile("components/links/link-sheet/domain-section.tsx", [["              papermark.com", "              documents.optixlog.com"]]);
+patchBrandingFile("components/links/link-sheet/pro-banner-section.tsx", [["Secured by Papermark", "Secured by OptixLog Documents"]]);
+
+for (const relPath of [
+  "pages/branding.tsx",
+  "pages/settings/agreements.tsx",
+  "pages/settings/domains.tsx",
+  "pages/datarooms/[id]/settings/index.tsx",
+  "pages/datarooms/[id]/settings/file-permissions.tsx",
+  "pages/datarooms/[id]/settings/downloads.tsx",
+  "pages/datarooms/[id]/settings/notifications.tsx",
+  "pages/datarooms/[id]/settings/introduction.tsx",
+  "pages/datarooms/[id]/branding/index.tsx",
+  "pages/datarooms/[id]/groups/index.tsx",
+  "pages/datarooms/[id]/permissions/index.tsx",
+  "pages/datarooms/[id]/users/index.tsx",
+  "pages/datarooms/[id]/documents/index.tsx",
+  "pages/datarooms/[id]/analytics/index.tsx",
+  "pages/datarooms/[id]/analytics/audit-log.tsx",
+  "components/documents/add-document-modal.tsx",
+  "components/links/link-sheet/index-file-section.tsx",
+  "components/links/link-sheet/expirationIn-section.tsx",
+  "components/links/link-sheet/email-protection-section.tsx",
+  "components/links/link-sheet/expiration-section.tsx",
+  "components/links/link-sheet/agreement-section.tsx",
+  "components/links/link-sheet/allow-notification-section.tsx",
+  "components/links/link-sheet/deny-list-section.tsx",
+  "components/links/link-sheet/watermark-section.tsx",
+  "components/links/link-sheet/password-section.tsx",
+  "components/links/link-sheet/custom-fields-section.tsx",
+  "components/links/link-sheet/email-authentication-section.tsx",
+  "components/links/link-sheet/screenshot-protection-section.tsx",
+  "components/links/link-sheet/allow-download-section.tsx",
+  "components/links/link-sheet/og-section.tsx",
+  "components/links/link-sheet/allow-list-section.tsx",
+  "components/links/link-sheet/tags/tag-section.tsx",
+]) {
+  const source = readFileSync(join(root, relPath), "utf8");
+  const replacements = [
+    [/https:\/\/www\.papermark\.com\/help\/[^\"'`}\s),.]+/g, "https://docs.optixlog.com"],
+    ["marc@papermark.com", "founders@optixlog.com"],
+    ["Papermark - open-source document sharing infrastructure.", "OptixLog Documents - secure document sharing and data rooms."],
+    ["Papermark is an open-source document sharing infrastructure for modern teams.", "OptixLog Documents provides secure document sharing for modern teams."],
+  ];
+  let out = source;
+  for (const [find, replace] of replacements) {
+    if (find instanceof RegExp) out = out.replace(find, replace);
+    else out = out.split(find).join(replace);
+  }
+  writeFileSync(join(root, relPath), out);
+  console.log(`branded help links in ${relPath}`);
+}
+
+patchBrandingFile("components/view/powered-by.tsx", [
+  ["https://www.papermark.com?utm_campaign=poweredby&utm_medium=poweredby&utm_source=papermark-${linkId}", "https://documents.optixlog.com?utm_campaign=poweredby&utm_medium=poweredby&utm_source=optixlog-documents-${linkId}"],
+  ["Share docs via", "Secured by"],
+  ["Papermark", "OptixLog Documents"],
+]);
+for (const relPath of [
+  "pages/view/[linkId]/index.tsx",
+  "pages/view/[linkId]/d/[documentId].tsx",
+  "pages/view/domains/[domain]/[slug]/index.tsx",
+  "pages/view/domains/[domain]/[slug]/d/[documentId].tsx",
+]) {
+  const source = readFileSync(join(root, relPath), "utf8");
+  const replacements = [
+    ["Powered by Papermark", "Shared with OptixLog Documents"],
+    ["https://www.papermark.com/view/${linkId}", "https://documents.optixlog.com/view/${linkId}"],
+  ].filter(([find]) => source.includes(find));
+  if (replacements.length === 0) {
+    throw new Error(`${relPath}: expected active viewer branding anchor not found`);
+  }
+  patchBrandingFile(relPath, replacements);
+}
+patchBrandingFile("components/view/access-form/index.tsx", [
+  ["https://www.papermark.com/privacy", "https://optixlog.com/privacy-policy"],
+  ["https://www.papermark.com", "https://documents.optixlog.com"],
+  ["Papermark", "OptixLog Documents"],
+]);
+for (const relPath of ["components/view/dataroom/nav-dataroom.tsx", "components/view/nav.tsx"]) {
+  patchBrandingFile(relPath, [
+    ["https://www.papermark.com?utm_campaign=navbar&utm_medium=navbar&utm_source=papermark-${linkId}", "https://documents.optixlog.com?utm_campaign=navbar&utm_medium=navbar&utm_source=optixlog-documents-${linkId}"],
+    ["                  Papermark", "                  OptixLog Documents"],
+  ]);
+}
+for (const relPath of ["components/upload-notification.tsx", "components/ui/progress.tsx"]) {
+  patchBrandingFile(relPath, [["support@papermark.com", "founders@optixlog.com"]]);
+}
+patchBrandingFile("components/view/viewer/pages-horizontal-viewer.tsx", [
+  ["https://www.papermark.com/_static/blank.gif", "/_static/blank.gif"],
+]);
+patchBrandingFile("components/view/link-preview.tsx", [["leaving Papermark", "leaving OptixLog Documents"]]);
+removeBrandingRange(
+  "components/view/visitor-graph.tsx",
+  "          <p className=\"mt-4 w-full max-w-md px-4 text-xs text-muted-foreground sm:px-16\">",
+  "          </p>",
+  `          <p className="mt-4 w-full max-w-md px-4 text-xs text-muted-foreground sm:px-16">
+            By clicking continue, you acknowledge the{" "}
+            <Link href="https://optixlog.com/privacy-policy" target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-900">
+              Privacy Policy
+            </Link>.
+          </p>`,
+);
+patchBrandingFile("components/view/visitor-graph.tsx", [["Papermark", "OptixLog Documents"]]);
+patchBrandingFile("lib/emails/send-welcome.ts", [["Welcome to Papermark!", "Welcome to OptixLog Documents!"]]);
+patchBrandingFile("lib/emails/send-verification-request.ts", [["Login for Papermark", "Login for OptixLog Documents"]]);
+patchBrandingFile("lib/emails/send-mail-verification.ts", [["Confirm your email address change for Papermark!", "Confirm your email address change for OptixLog Documents!"]]);
+patchBrandingFile("lib/resend.ts", [
+  ["Marc from Papermark <marc@updates.papermark.com>", "OptixLog Documents <documents@optixlog.com>"],
+  ["Papermark <system@papermark.com>", "OptixLog Documents <documents@optixlog.com>"],
+  ["Papermark <system@verify.papermark.com>", "OptixLog Documents <documents@optixlog.com>"],
+  ["Marc Seitz <marc@papermark.com>", "OptixLog Documents <documents@optixlog.com>"],
+  ["Marc from Papermark <marc@papermark.com>", "OptixLog Documents <documents@optixlog.com>"],
+  ['marketing ? "marc@papermark.com" : replyTo', 'marketing ? "founders@optixlog.com" : replyTo'],
+]);
+patchBrandingFile("components/settings/survey-settings.tsx", [["Papermark", "OptixLog Documents"]]);
+patchBrandingFile("components/domains/add-domain-modal.tsx", [["Papermark links", "OptixLog Documents links"]]);
+patchBrandingFile("components/domains/domain-card.tsx", [["redirect to papermark.com", "redirect to documents.optixlog.com"]]);
+patchBrandingFile("components/domains/delete-domain-modal.tsx", [
+  ["be reset to <span className=\"font-medium\">papermark.com</span> links.", "be reset to <span className=\"font-medium\">documents.optixlog.com</span> links."],
+  ["→ papermark.com", "→ documents.optixlog.com"],
+]);
+patchBrandingFile("components/domains/domain-configuration.tsx", [["use on Papermark", "use on OptixLog Documents"]]);
+patchBrandingFile("components/settings/og-preview.tsx", [['const hostname = "papermark.com";', 'const hostname = "documents.optixlog.com";']]);
+patchBrandingFile("ee/features/dataroom-invitations/components/invite-viewers-modal.tsx", [
+  ['import { fetcher } from "@/lib/utils";', 'import { fetcher } from "@/lib/utils";\nimport { constructLinkUrl } from "@/lib/utils/link-url";'],
+  ["support@papermark.com", "founders@optixlog.com"],
+  ["system@papermark.com", "documents@optixlog.com"],
+  ["Papermark, Inc.", "OptixLog"],
+  ["Papermark", "OptixLog Documents"],
+  [`{selectedLink
+                      ? \`https://papermark.com/view/\${selectedLink.slug ?? selectedLink.id}\`
+                      : "https://papermark.com/view/..."}`, `{selectedLink
+                      ? constructLinkUrl(selectedLink)
+                      : "https://documents.optixlog.com/view/..."}`],
+]);
+for (const relPath of [
+  "ee/features/dataroom-invitations/api/group-invite.ts",
+  "ee/features/dataroom-invitations/api/link-invite.ts",
+]) {
+  patchBrandingFile(relPath, [["support@papermark.com", "founders@optixlog.com"]]);
+}
+patchBrandingFile("pages/account/general.tsx", [["Papermark", "OptixLog Documents"]]);
+patchBrandingFile("pages/settings/general.tsx", [["Papermark", "OptixLog Documents"]]);
+patchBrandingFile("pages/settings/incoming-webhooks.tsx", [["Papermark", "OptixLog Documents"]]);
+patchBrandingFile("pages/settings/webhooks/index.tsx", [["Papermark", "OptixLog Documents"]]);
+patchBrandingFile("pages/datarooms/[id]/groups/[groupId]/index.tsx", [["Papermark", "OptixLog Documents"]]);
+
+patchBrandingFile("pages/notification-preferences.tsx", [
+  ["PapermarkLogo", "OptixLogDocumentsLogo"],
+  ["Notification Preferences | Papermark", "Notification Preferences | OptixLog Documents"],
+  ["https://www.papermark.com", "https://documents.optixlog.com"],
+  ['alt="Papermark"', 'alt="OptixLog Documents"'],
+  ["                Papermark", "                OptixLog Documents"],
+]);
+
+const emailFiles = [
+  "components/emails/verification-link.tsx",
+  "components/emails/team-invitation.tsx",
+  "components/emails/viewed-document.tsx",
+  "components/emails/viewed-dataroom.tsx",
+  "components/emails/dataroom-notification.tsx",
+  "components/emails/dataroom-digest-notification.tsx",
+  "components/emails/dataroom-upload-notification.tsx",
+  "components/emails/otp-verification.tsx",
+  "components/emails/verification-email-change.tsx",
+  "components/emails/email-updated.tsx",
+  "components/emails/export-ready.tsx",
+  "components/emails/download-ready.tsx",
+  "ee/features/dataroom-invitations/emails/components/dataroom-viewer-invitation.tsx",
+  "ee/features/dataroom-freeze/emails/components/dataroom-freeze-otp.tsx",
+  "components/emails/welcome.tsx",
+];
+for (const relPath of emailFiles) {
+  const source = readFileSync(join(root, relPath), "utf8");
+  const replacements = [
+    ["https://app.papermark.com", "https://documents.optixlog.com"],
+    ["https://www.papermark.com", "https://documents.optixlog.com"],
+    ["Papermark, Inc.", "OptixLog"],
+    ["The Papermark Team", "The OptixLog Team"],
+    ["Papermark", "OptixLog Documents"],
+  ].filter(([find]) => source.includes(find));
+  if (replacements.length === 0) {
+    throw new Error(`${relPath}: expected active email branding anchor not found`);
+  }
+  patchBrandingFile(relPath, replacements);
+}
+for (const relPath of [
+  "components/emails/custom-domain-setup.tsx",
+  "components/emails/invalid-domain.tsx",
+  "components/emails/deleted-domain.tsx",
+  "components/emails/onboarding-1.tsx",
+  "components/emails/onboarding-2.tsx",
+  "components/emails/onboarding-3.tsx",
+  "components/emails/onboarding-4.tsx",
+  "lib/emails/send-custom-domain-setup.ts",
+  "lib/emails/send-onboarding.ts",
+]) {
+  const source = readFileSync(join(root, relPath), "utf8");
+  const replacements = [
+    ["https://app.papermark.com", "https://documents.optixlog.com"],
+    ["https://www.papermark.com", "https://documents.optixlog.com"],
+    ["https://docs.papermark.com", "https://docs.optixlog.com"],
+    ["support@papermark.com", "founders@optixlog.com"],
+    ["Papermark, Inc.", "OptixLog"],
+    ["Papermark", "OptixLog Documents"],
+  ].filter(([find]) => source.includes(find));
+  if (replacements.length === 0) {
+    throw new Error(`${relPath}: expected active email branding anchor not found`);
+  }
+  patchBrandingFile(relPath, replacements);
+}
+patchBrandingFile("components/emails/custom-domain-setup.tsx", [
+  ["papermark.com", "documents.optixlog.com"],
+]);
+for (const relPath of ["components/emails/verification-link.tsx", "components/emails/otp-verification.tsx"]) {
+  patchBrandingFile(relPath, [[`                <br />
+                1111B S Governors Ave #28117
+                <br />
+                Dover, DE 19904`, ""]]);
+}
+patchBrandingFile("components/emails/welcome.tsx", [
+  ["https://documents.optixlog.com/help/article/how-to-upload-document", "https://docs.optixlog.com"],
+  ["https://documents.optixlog.com/help/article/require-email-verification", "https://docs.optixlog.com"],
+  ["https://documents.optixlog.com/password-protection", "https://docs.optixlog.com"],
+  ["https://documents.optixlog.com/help/article/expiration-date", "https://docs.optixlog.com"],
+  ["https://documents.optixlog.com/help/article/built-in-page-by-page-analytics", "https://docs.optixlog.com"],
+  ["https://documents.optixlog.com/help/article/create-data-room", "https://docs.optixlog.com"],
+]);
+patchBrandingFile("components/emails/shared/footer.tsx", [
+  ["https://app.papermark.com/account/general", "https://documents.optixlog.com/account/general"],
+  [`        <Text className="text-[12px] text-neutral-500">
+          Papermark, Inc.
+          <br />
+          1111B S Governors Ave #28117
+          <br />
+          Dover, DE 19904
+        </Text>`, `        <Text className="text-[12px] text-neutral-500">OptixLog</Text>`],
+  [`        <Text className="text-xs">
+          © {new Date().getFullYear()} Papermark, Inc. All rights reserved.{" "}
+          {withAddress && (
+            <>
+              <br />
+              1111B S Governors Ave #28117, Dover, DE 19904
+            </>
+          )}
+        </Text>`, `        <Text className="text-xs">
+          © {new Date().getFullYear()} OptixLog. All rights reserved.
+        </Text>`],
+]);
+
+// 14. Remaining live white-label correctness fixes found in the final audit.
+// Agreement uploads should produce the same canonical Documents URL as normal
+// links, while agreement downloads continue accepting historical Papermark URLs.
+patchBrandingFile("components/links/link-sheet/agreement-panel/index.tsx", [
+  ['import { getSupportedContentType } from "@/lib/utils/get-content-type";', 'import { getSupportedContentType } from "@/lib/utils/get-content-type";\nimport { constructLinkUrl } from "@/lib/utils/link-url";'],
+  ['link: "https://www.papermark.com/view/" + linkId,', 'link: constructLinkUrl({ id: linkId }),'],
+  ['placeholder="https://www.papermark.com/nda"', 'placeholder="https://documents.optixlog.com/nda"'],
+]);
+patchBrandingFile("pages/api/teams/[teamId]/agreements/[agreementId]/download.ts", [
+  [`      // Check if the content is a Papermark URL
+      const isPapermarkUrl =
+        agreement.content.includes("papermark.com/view/") ||
+        agreement.content.includes("www.papermark.com/view/");`, `      // Recognize canonical Documents links and historical Papermark links.
+      let internalLinkId: string | null = null;
+      try {
+        const agreementUrl = new URL(agreement.content);
+        const internalHosts = new Set([
+          "documents.optixlog.com",
+          "papermark.com",
+          "www.papermark.com",
+          "app.papermark.com",
+        ]);
+        const pathMatch = agreementUrl.pathname.match(/^\\/view\\/([^/?#]+)/);
+        if (internalHosts.has(agreementUrl.hostname) && pathMatch?.[1]) {
+          internalLinkId = pathMatch[1];
+        }
+      } catch {
+        // Non-URL agreement content is exported as metadata below.
+      }`],
+  ["      if (isPapermarkUrl) {", "      if (internalLinkId) {"],
+  [`        // Extract linkId from Papermark URL
+        const urlParts = agreement.content.split("/view/");
+        if (urlParts.length < 2) {
+          return res.status(400).json("Invalid Papermark URL format");
+        }
+
+        const linkId = urlParts[1].split(/[/?#]/)[0]; // Get linkId, remove any query params or fragments
+
+        // Fetch the link and its document
+        link = await prisma.link.findUnique({
+          where: { id: linkId },`, `        // Fetch the link and its document.
+        link = await prisma.link.findUnique({
+          where: { id: internalLinkId },`],
+  ['.json("Document not found for the provided Papermark URL");', '.json("Document not found for the provided internal document URL");'],
+]);
+
+// Reachable transactional and trial emails named in the final audit.
+for (const relPath of [
+  "components/emails/viewed-document-paused.tsx",
+  "components/emails/dataroom-trial-24h.tsx",
+  "components/emails/dataroom-trial-end.tsx",
+  "components/emails/dataroom-trial-welcome.tsx",
+  "components/emails/installed-integration-notification.tsx",
+  "ee/features/conversations/emails/components/conversation-notification.tsx",
+  "ee/features/conversations/emails/components/conversation-team-notification.tsx",
+]) {
+  const source = readFileSync(join(root, relPath), "utf8");
+  const replacements = [
+    ["https://app.papermark.com", "https://documents.optixlog.com"],
+    ["https://www.papermark.com", "https://documents.optixlog.com"],
+    ["support@papermark.com", "founders@optixlog.com"],
+    ["Papermark", "OptixLog Documents"],
+  ].filter(([find]) => source.includes(find));
+  if (replacements.length === 0) {
+    throw new Error(`${relPath}: expected reachable email branding anchor not found`);
+  }
+  patchBrandingFile(relPath, replacements);
+}
+patchBrandingFile("components/emails/dataroom-trial-24h.tsx", [
+  ["Marc from OptixLog Documents", "OptixLog Documents"],
+]);
+for (const relPath of [
+  "ee/features/conversations/emails/components/conversation-notification.tsx",
+  "ee/features/conversations/emails/components/conversation-team-notification.tsx",
+]) {
+  patchBrandingFile(relPath, [
+    ["OptixLog Documents, Inc.", "OptixLog"],
+  ]);
+}
+for (const relPath of [
+  "lib/emails/send-dataroom-trial-24h.ts",
+  "lib/emails/send-dataroom-trial-end.ts",
+  "lib/emails/send-dataroom-trial.ts",
+]) {
+  patchBrandingFile(relPath, [
+    ["Marc Seitz <marc@papermark.com>", "OptixLog Documents <founders@optixlog.com>"],
+  ]);
+}
+patchBrandingFile("components/emails/invalid-domain.tsx", [
+  ['domain = "papermark.com"', 'domain = "documents.optixlog.com"'],
+]);
+patchBrandingFile("components/emails/deleted-domain.tsx", [
+  ['domain = "papermark.com"', 'domain = "documents.optixlog.com"'],
+]);
+
+// Active configuration screens: labels and previews only. The workflow's
+// papermark.com value remains the upstream sentinel used by its API contract.
+patchBrandingFile("pages/branding.tsx", [
+  ["across Papermark", "across OptixLog Documents"],
+  ["papermark.com/view/...", "documents.optixlog.com/view/..."],
+]);
+patchBrandingFile("pages/datarooms/[id]/branding/index.tsx", [
+  ["papermark.com/dataroom/...", "documents.optixlog.com/dataroom/..."],
+  ["papermark.com/view/...", "documents.optixlog.com/view/..."],
+]);
+patchBrandingFile("ee/features/workflows/pages/workflow-new.tsx", [
+  ['<SelectValue placeholder="papermark.com (default)" />', '<SelectValue placeholder="documents.optixlog.com (default)" />'],
+  ['<SelectItem value="papermark.com">papermark.com</SelectItem>', '<SelectItem value="papermark.com">documents.optixlog.com</SelectItem>'],
+  ["Entry URL will be generated automatically (e.g., papermark.com/view/clxxx...)", "Entry URL will be generated automatically (e.g., documents.optixlog.com/view/clxxx...)"],
+]);
+patchBrandingFile("ee/features/workflows/components/step-form-dialog.tsx", [
+  ["papermark.com/{link.slug}", "documents.optixlog.com/{link.slug}"],
+]);
 
 console.log("all self-host patches applied");
