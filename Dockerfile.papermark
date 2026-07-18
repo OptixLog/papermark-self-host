@@ -111,7 +111,12 @@ ENV NEXT_PUBLIC_UPLOAD_TRANSPORT=${NEXT_PUBLIC_UPLOAD_TRANSPORT}
 ENV DATABASE_URL=postgresql://dummy:dummy@localhost:5432/dummy
 ENV OPENAI_API_KEY=sk-test12345
 ENV HANKO_API_KEY=123dummy
-ENV NEXT_PUBLIC_HANKO_TENANT_ID=dummy
+# NEXT_PUBLIC_* is inlined at build time - a dummy here ships "dummy" as the
+# tenant_id in the compiled bundle no matter what the runtime env says, and
+# Hanko rejects it (tenant_id must be a valid uuid4). The tenant ID is public
+# by design (it's in the client JS), so bake the real one.
+ARG NEXT_PUBLIC_HANKO_TENANT_ID=bbbe91d0-c7f0-4a08-ba77-10f2d0248e75
+ENV NEXT_PUBLIC_HANKO_TENANT_ID=${NEXT_PUBLIC_HANKO_TENANT_ID}
 ENV SLACK_CLIENT_ID=dummy
 ENV SLACK_CLIENT_SECRET=dummy
 
