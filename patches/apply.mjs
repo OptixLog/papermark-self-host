@@ -256,7 +256,154 @@ for (const relPath of ["lib/tinybird/publish.ts", "lib/tinybird/pipes.ts"]) {
   );
 }
 
-// 9. Modules referenced by the code but never published to the public repo.
+// 9. PDF conversion without Trigger.dev. convertPdfToImageRoute is a
+//    Trigger.dev task; with no TRIGGER_SECRET_KEY the task never executes,
+//    documentVersion.hasPages stays false, and every uploaded document shows
+//    "Preparing preview... / Almost ready..." forever. The heavy lifting is
+//    in the app's own /api/mupdf routes, so when Trigger.dev is unconfigured
+//    drive them inline (fire-and-forget) instead. Patches the three PDF
+//    upload entrypoints: process-document, new-version, and NDA agreements.
+patchFile(
+  "lib/api/documents/process-document.ts",
+  `import { convertPdfToImageRoute } from "@/lib/trigger/pdf-to-image-route";`,
+  `import {
+  convertPdfToImagesInlineInBackground,
+  triggerDevConfigured,
+} from "@/lib/api/documents/convert-pdf-inline";
+import { convertPdfToImageRoute } from "@/lib/trigger/pdf-to-image-route";`,
+  "convert-pdf-inline",
+);
+patchFile(
+  "lib/api/documents/process-document.ts",
+  `  if (type === "pdf") {
+    await convertPdfToImageRoute.trigger(
+      {
+        documentId: document.id,
+        documentVersionId: document.versions[0].id,
+        teamId,
+      },`,
+  `  if (type === "pdf" && !triggerDevConfigured()) {
+    convertPdfToImagesInlineInBackground({
+      documentId: document.id,
+      documentVersionId: document.versions[0].id,
+      teamId,
+    });
+  } else if (type === "pdf") {
+    await convertPdfToImageRoute.trigger(
+      {
+        documentId: document.id,
+        documentVersionId: document.versions[0].id,
+        teamId,
+      },`,
+  "convertPdfToImagesInlineInBackground({",
+);
+patchFile(
+  "pages/api/teams/[teamId]/documents/[id]/versions/index.ts",
+  `      if (type === "pdf") {
+        await convertPdfToImageRoute.trigger(
+          {
+            documentId: documentId,
+            documentVersionId: version.id,
+            teamId,`,
+  `      if (type === "pdf" && !process.env.TRIGGER_SECRET_KEY) {
+        const { convertPdfToImagesInlineInBackground } = await import(
+          "@/lib/api/documents/convert-pdf-inline"
+        );
+        convertPdfToImagesInlineInBackground({
+          documentId,
+          documentVersionId: version.id,
+          teamId,
+          versionNumber: version.versionNumber,
+        });
+      } else if (type === "pdf") {
+        await convertPdfToImageRoute.trigger(
+          {
+            documentId: documentId,
+            documentVersionId: version.id,
+            teamId,`,
+  "convert-pdf-inline",
+);
+patchFile(
+  "pages/api/teams/[teamId]/documents/agreement.ts",
+  `        await convertPdfToImageRoute.trigger(`,
+  `        if (!process.env.TRIGGER_SECRET_KEY) {
+          const { convertPdfToImagesInlineInBackground } = await import(
+            "@/lib/api/documents/convert-pdf-inline"
+          );
+          convertPdfToImagesInlineInBackground({
+            documentId: document.id,
+            documentVersionId: document.versions[0].id,
+            teamId,
+          });
+        } else
+        await convertPdfToImageRoute.trigger(`,
+  "convert-pdf-inline",
+);
+
+// 10. Custom domains without Vercel. lib/domains.ts calls the Vercel Domains
+//     API for add/verify/config; with PROJECT_ID_VERCEL unset every response
+//     is an error object and the domains UI shows "Invalid" for everything —
+//     including the app host itself. Delegate to a DNS-based checker
+//     (lib/domains-selfhost.ts): a domain is valid when it CNAMEs to the app
+//     host or its A records match the app host's.
+patchFile(
+  "lib/domains.ts",
+  `export const addDomainToVercel = async (domain: string) => {
+  return await fetch(`,
+  `import { selfHostDomains } from "@/lib/domains-selfhost";
+
+export const addDomainToVercel = async (domain: string) => {
+  if (selfHostDomains.enabled()) return selfHostDomains.addDomain(domain);
+  return await fetch(`,
+  "domains-selfhost",
+);
+patchFile(
+  "lib/domains.ts",
+  `export const removeDomainFromVercelProject = async (domain: string) => {
+  return await fetch(`,
+  `export const removeDomainFromVercelProject = async (domain: string) => {
+  if (selfHostDomains.enabled()) return selfHostDomains.removeDomain(domain);
+  return await fetch(`,
+  "selfHostDomains.removeDomain",
+);
+patchFile(
+  "lib/domains.ts",
+  `export const removeDomainFromVercelTeam = async (domain: string) => {
+  return await fetch(`,
+  `export const removeDomainFromVercelTeam = async (domain: string) => {
+  if (selfHostDomains.enabled()) return selfHostDomains.removeDomain(domain);
+  return await fetch(`,
+  "selfHostDomains.enabled()) return selfHostDomains.removeDomain(domain);\n  return await fetch(\n    `https://api.vercel.com/v6/domains",
+);
+patchFile(
+  "lib/domains.ts",
+  `): Promise<DomainResponse & { error: { code: string; message: string } }> => {
+  return await fetch(`,
+  `): Promise<DomainResponse & { error: { code: string; message: string } }> => {
+  if (selfHostDomains.enabled()) return selfHostDomains.getDomainResponse(domain);
+  return await fetch(`,
+  "selfHostDomains.getDomainResponse",
+);
+patchFile(
+  "lib/domains.ts",
+  `): Promise<DomainConfigResponse> => {
+  return await fetch(`,
+  `): Promise<DomainConfigResponse> => {
+  if (selfHostDomains.enabled()) return selfHostDomains.getConfigResponse(domain);
+  return await fetch(`,
+  "selfHostDomains.getConfigResponse",
+);
+patchFile(
+  "lib/domains.ts",
+  `): Promise<DomainVerificationResponse> => {
+  return await fetch(`,
+  `): Promise<DomainVerificationResponse> => {
+  if (selfHostDomains.enabled()) return selfHostDomains.verifyDomain(domain);
+  return await fetch(`,
+  "selfHostDomains.verifyDomain",
+);
+
+// 11. Modules referenced by the code but never published to the public repo.
 cpSync(join(patchesDir, "files"), root, { recursive: true });
 console.log("copied reconstructed modules (lib/*, svg.d.ts)");
 
