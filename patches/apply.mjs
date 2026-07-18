@@ -238,7 +238,25 @@ patchFile(
   "sendViaSmtp({",
 );
 
-// 8. Modules referenced by the code but never published to the public repo.
+// 8. Self-hosted Tinybird (tinybird-local container on the Dokploy host).
+//    @chronark/zod-bird defaults to https://api.tinybird.co; point it at
+//    TINYBIRD_BASE_URL when set. Powers page-by-page analytics, visitor
+//    durations and the dashboard views chart.
+for (const relPath of ["lib/tinybird/publish.ts", "lib/tinybird/pipes.ts"]) {
+  patchFile(
+    relPath,
+    `const tb = new Tinybird({ token: process.env.TINYBIRD_TOKEN! });`,
+    `const tb = new Tinybird({
+  token: process.env.TINYBIRD_TOKEN!,
+  ...(process.env.TINYBIRD_BASE_URL
+    ? { baseUrl: process.env.TINYBIRD_BASE_URL }
+    : {}),
+});`,
+    "TINYBIRD_BASE_URL",
+  );
+}
+
+// 9. Modules referenced by the code but never published to the public repo.
 cpSync(join(patchesDir, "files"), root, { recursive: true });
 console.log("copied reconstructed modules (lib/*, svg.d.ts)");
 
