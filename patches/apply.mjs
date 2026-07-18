@@ -403,7 +403,40 @@ patchFile(
   "selfHostDomains.verifyDomain",
 );
 
-// 11. Modules referenced by the code but never published to the public repo.
+// 11. Realtime progress against self-hosted Trigger.dev. The react-hooks
+//     default baseURL is https://api.trigger.dev; point them at our instance
+//     via NEXT_PUBLIC_TRIGGER_API_URL (inlined at build — set in the
+//     Dockerfile). Without this the progress bar silently never updates.
+patchFile(
+  "lib/utils/use-progress-status.ts",
+  `    {
+      enabled: !!publicAccessToken,
+      accessToken: publicAccessToken,
+    },
+  );`,
+  `    {
+      enabled: !!publicAccessToken,
+      accessToken: publicAccessToken,
+      baseURL: process.env.NEXT_PUBLIC_TRIGGER_API_URL,
+    },
+  );`,
+  "NEXT_PUBLIC_TRIGGER_API_URL",
+);
+patchFile(
+  "ee/features/dataroom-freeze/lib/swr/use-freeze-progress.ts",
+  `  const { runs } = useRealtimeRunsWithTag(tag, {
+    enabled: isArchiveInProgress && !!accessToken,
+    accessToken,
+  });`,
+  `  const { runs } = useRealtimeRunsWithTag(tag, {
+    enabled: isArchiveInProgress && !!accessToken,
+    accessToken,
+    baseURL: process.env.NEXT_PUBLIC_TRIGGER_API_URL,
+  });`,
+  "baseURL: process.env.NEXT_PUBLIC_TRIGGER_API_URL,\n  });",
+);
+
+// 12. Modules referenced by the code but never published to the public repo.
 cpSync(join(patchesDir, "files"), root, { recursive: true });
 console.log("copied reconstructed modules (lib/*, svg.d.ts)");
 

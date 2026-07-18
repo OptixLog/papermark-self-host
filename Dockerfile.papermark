@@ -117,6 +117,9 @@ ENV HANKO_API_KEY=123dummy
 # by design (it's in the client JS), so bake the real one.
 ARG NEXT_PUBLIC_HANKO_TENANT_ID=bbbe91d0-c7f0-4a08-ba77-10f2d0248e75
 ENV NEXT_PUBLIC_HANKO_TENANT_ID=${NEXT_PUBLIC_HANKO_TENANT_ID}
+# Self-hosted Trigger.dev instance (realtime progress hooks read this at build time)
+ARG NEXT_PUBLIC_TRIGGER_API_URL=https://trigger.optixlog.com
+ENV NEXT_PUBLIC_TRIGGER_API_URL=${NEXT_PUBLIC_TRIGGER_API_URL}
 ENV SLACK_CLIENT_ID=dummy
 ENV SLACK_CLIENT_SECRET=dummy
 
