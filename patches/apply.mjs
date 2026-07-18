@@ -156,7 +156,21 @@ patchFile(
   "endpoint: this.usConfig.endpoint, forcePathStyle: true",
 );
 
-// 6. Email via SMTP (AWS SES) instead of Resend. sendEmail() throws when
+// 6. Invite links are signed with NEXT_PRIVATE_UNSUBSCRIBE_JWT_SECRET.
+//    When unset, jwt.sign(payload, undefined) throws INSIDE the teammate
+//    invite/resend routes - after the Invitation row is created but before
+//    the email sends, so invites "succeed" in the UI yet never arrive.
+//    Fall back to NEXTAUTH_SECRET (always set - NextAuth requires it) so a
+//    missing env var can never silently kill invite emails again.
+patchFile(
+  "lib/utils/generate-jwt.ts",
+  `const JWT_SECRET = process.env.NEXT_PRIVATE_UNSUBSCRIBE_JWT_SECRET as string;`,
+  `const JWT_SECRET = (process.env.NEXT_PRIVATE_UNSUBSCRIBE_JWT_SECRET ||
+  process.env.NEXTAUTH_SECRET) as string;`,
+  "process.env.NEXTAUTH_SECRET",
+);
+
+// 7. Email via SMTP (AWS SES) instead of Resend. sendEmail() throws when
 //    RESEND_API_KEY is unset, which breaks teammate invites, magic-link
 //    sign-in, and view notifications on self-host. When EMAIL_SMTP_HOST is
 //    configured, route through nodemailer -> SES SMTP and rewrite the
@@ -224,7 +238,7 @@ patchFile(
   "sendViaSmtp({",
 );
 
-// 7. Modules referenced by the code but never published to the public repo.
+// 8. Modules referenced by the code but never published to the public repo.
 cpSync(join(patchesDir, "files"), root, { recursive: true });
 console.log("copied reconstructed modules (lib/*, svg.d.ts)");
 
